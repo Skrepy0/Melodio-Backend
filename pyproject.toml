@@ -1,0 +1,18 @@
+[tool.ruff]
+line-length = 79
+target-version = "py312"
+extend-exclude = [".venv", "LICENSE"]
+
+[tool.ruff.lint]
+select = ["E", "F", "UP"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.scripts]
+build-venv = "python -m venv .venv"
+requirements = "pip freeze > requirements.txt"
+check = "ruff format --check ."
+format = "ruff format ."
+test-all = "pytest tests/"
+test-api = "pytest tests/test_api.py"
