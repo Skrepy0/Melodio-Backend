@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import time
+from urllib.parse import parse_qsl
 
 from slowapi import Limiter
 from fastapi import Request, HTTPException
@@ -37,11 +38,23 @@ def verify_signature(request: Request):
     method = request.method
     path = request.url.path
 
-    query_params = sorted(request.query_params.items())
-    query_str = '&'.join([f'{k}={v}' for k, v in query_params])
+    # 从原始查询字符串解析参数（保留重复键）
+    raw_query = request.scope.get('query_string', b'').decode()
+    # parse_qsl 返回列表，保留重复键
+    query_items = parse_qsl(raw_query, keep_blank_values=True)
 
+    # 过滤掉 timestamp 和 nonce
+    filtered_items = [
+        (k, v) for k, v in query_items if k not in ('timestamp', 'nonce')
+    ]
+
+    # 按字典序排序
+    sorted_items = sorted(filtered_items)
+    query_str = '&'.join([f'{k}={v}' for k, v in sorted_items])
+
+    # 构建 sign_str
     sign_str = f'{method}&{path}&{query_str}&{timestamp}&{nonce}'
-
+    print('🔴 SERVER sign_str:', repr(sign_str))
     secret_key = getattr(settings, 'SECRET_KEY', None)
     if not secret_key:
         raise HTTPException(
