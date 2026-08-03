@@ -5,6 +5,8 @@ from fastapi.responses import JSONResponse
 from app.api.v1.router import router as v1_router
 import logging
 
+from app.utils.exceptions import InvalidMusicClientError
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,20 @@ app.add_middleware(
 )
 
 app.include_router(v1_router, prefix='/api/v1')
+
+
+@app.exception_handler(InvalidMusicClientError)
+async def invalid_music_client_handler(
+    request: Request, exc: InvalidMusicClientError
+):
+    return JSONResponse(
+        status_code=422,
+        content={
+            'code': exc.code,
+            'msg': f'Invalid music client: {exc.client_name}',
+            'detail': str(exc),
+        },
+    )
 
 
 @app.exception_handler(Exception)
