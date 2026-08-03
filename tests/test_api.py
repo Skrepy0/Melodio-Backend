@@ -17,9 +17,20 @@ def make_signed_headers(
     method='GET', path='/api/v1/music/search', params=None
 ):
     if params is None:
-        params = {'keyword': '周杰伦', 'limit': 10}
-    sorted_params = sorted(params.items())
-    query_str = '&'.join([f'{k}={v}' for k, v in sorted_params])
+        params = {'keyword': '林俊杰', 'limit': 5}
+
+    items = []
+    for k, v in params.items():
+        if isinstance(v, list):
+            for item in v:
+                items.append((k, item))
+        else:
+            items.append((k, v))
+
+    sorted_items = sorted(items)
+
+    query_str = '&'.join([f'{k}={v}' for k, v in sorted_items])
+
     timestamp = str(int(time.time()))
     nonce = 'pytest_nonce'
     sign_str = f'{method}&{path}&{query_str}&{timestamp}&{nonce}'
@@ -38,7 +49,11 @@ def make_signed_headers(
 @pytest.mark.asyncio
 async def test_search_success():
     """测试: 正常搜索，应返回 200"""
-    params = {'keyword': '林俊杰', 'limit': 5}
+    params = {
+        'keyword': '林俊杰',
+        'music_client': ['BilibiliMusicClient'],
+        'limit': 5,
+    }
     headers = make_signed_headers(params=params)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url='http://test'
@@ -46,7 +61,9 @@ async def test_search_success():
         response = await client.get(
             '/api/v1/music/search', params=params, headers=headers
         )
-    assert response.status_code == 200
+    assert response.status_code == 200, (
+        f'Unexpected status {response.status_code}: {response.text}'
+    )
     data = response.json()
     assert 'total' in data
     assert 'items' in data
@@ -82,3 +99,25 @@ async def test_search_invalid_signature():
         )
     assert response.status_code == 403
     assert 'Invalid signature' in response.text
+
+
+@pytest.mark.asyncio
+async def test_search_invalid_music_client():
+    """测试: 无效音乐来源, 返回422"""
+    params = {
+        'keyword': '林俊杰',
+        'music_client': ['ZzgMusicClient'],
+        'limit': 5,
+    }
+    headers = make_signed_headers(params=params)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url='http://test'
+    ) as client:
+        response = await client.get(
+            '/api/v1/music/search', params=params, headers=headers
+        )
+    assert response.status_code == 422
+    data = response.json()
+    assert 'code' in data
+    assert 'msg' in data
+    assert 'detail' in data

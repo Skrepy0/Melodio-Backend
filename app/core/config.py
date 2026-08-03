@@ -1,5 +1,5 @@
 from pathlib import Path
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = (
     Path(__file__).resolve().parent.parent.parent
@@ -10,9 +10,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     SIGNATURE_EXPIRE_SECONDS: int = 300
 
-    class Config:
-        env_file = str(BASE_DIR / '.env')
-        extra = 'ignore'
+    model_config = SettingsConfigDict(
+        env_file=str(BASE_DIR / '.env'),
+        extra='ignore',
+        case_sensitive=True,
+    )
 
 
 settings = Settings()
