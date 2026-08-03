@@ -17,11 +17,11 @@ class SongItem(BaseModel):
     ext: str  # 扩展名,如flac,mp3
     file_size_bytes: int  # 文件大小
     duration: float  # 时长
-    lyric: str  # 歌词
-    cover_url: str  # 封面图片地址
-    download_url: str  # 下载地址
-    download_url_status: UrlStatus  # 下载地址状态
-    identifier: int  # id
+    lyric: str | None  # 歌词
+    cover_url: str | None  # 封面图片地址
+    download_url: str | None  # 下载地址
+    download_url_status: UrlStatus | None  # 下载地址状态
+    identifier: str | int  # id
 
 
 class SongResponse(BaseModel):
