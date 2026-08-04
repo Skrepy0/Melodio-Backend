@@ -5,7 +5,10 @@ from fastapi.responses import JSONResponse
 from app.api.v1.router import router as v1_router
 import logging
 
-from app.utils.exceptions import InvalidMusicClientError
+from app.utils.exceptions import (
+    InvalidMusicClientError,
+    ArrayLengthMismatchError,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,6 +48,20 @@ async def invalid_music_client_handler(
         content={
             'code': exc.code,
             'msg': f'Invalid music client: {exc.client_name}',
+            'detail': str(exc),
+        },
+    )
+
+
+@app.exception_handler(ArrayLengthMismatchError)
+async def array_length_mismatch_handler(
+    request: Request, exc: ArrayLengthMismatchError
+):
+    return JSONResponse(
+        status_code=422,
+        content={
+            'code': exc.code,
+            'msg': f'Array Length Mismatch: {exc.array_name}\n expected:{exc.expected}\n actual:{exc.actual}',
             'detail': str(exc),
         },
     )

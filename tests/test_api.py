@@ -120,3 +120,54 @@ async def test_search_invalid_music_client():
     assert 'code' in data
     assert 'msg' in data
     assert 'detail' in data
+
+
+@pytest.mark.asyncio
+async def test_parse_song_list_success():
+    """测试: 正常解析歌单, 返回200"""
+    params = {
+        'url': 'https://h5app.kuwo.cn/m/bodian/collection.html?uid=45780003&playlistId=86749638&source=5&owerId=',
+        'music_client': ['BodianMusicClient'],
+        'limit': 2,
+    }
+    headers = make_signed_headers(
+        path='/api/v1/music/parse_song_list', params=params
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url='http://test'
+    ) as client:
+        response = await client.get(
+            '/api/v1/music/parse_song_list', params=params, headers=headers
+        )
+    data = response.json()
+    assert response.status_code == 200, (
+        f'Unexpected status {response.status_code}: {data}'
+    )
+    assert 'total' in data
+    assert 'items' in data
+
+
+@pytest.mark.asyncio
+async def test_parse_song_list_client_count_mismatch():
+    """测试: 音乐来源数量不匹配, 返回422"""
+    params = {
+        'url': 'https://h5app.kuwo.cn/m/bodian/collection.html?uid=45780003&playlistId=86749638&source=5&owerId=',
+        'music_client': ['BodianMusicClient', 'BilibiliMusicClient'],
+        'limit': 2,
+    }
+    headers = make_signed_headers(
+        path='/api/v1/music/parse_song_list', params=params
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url='http://test'
+    ) as client:
+        response = await client.get(
+            '/api/v1/music/parse_song_list', params=params, headers=headers
+        )
+    data = response.json()
+    assert response.status_code == 422, (
+        f'Unexpected status {response.status_code}: {data}'
+    )
+    assert 'code' in data
+    assert 'msg' in data
+    assert 'detail' in data
