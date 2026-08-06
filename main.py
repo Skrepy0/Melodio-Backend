@@ -1,10 +1,12 @@
+import os
+
+os.environ['HOME'] = '/tmp'
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.api.v1.router import router as v1_router
 import logging
-
 from app.utils.exceptions import (
     InvalidMusicClientError,
     ArrayLengthMismatchError,
