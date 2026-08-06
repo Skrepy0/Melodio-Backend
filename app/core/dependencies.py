@@ -13,6 +13,8 @@ limiter = Limiter(key_func=get_remote_address, default_limits=['100/day'])
 
 
 def verify_signature(request: Request):
+    if request.method == 'OPTIONS':
+        return True
     timestamp = request.headers.get('X-Timestamp')
     nonce = request.headers.get('X-Nonce')
     signature = request.headers.get('X-Signature')
