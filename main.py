@@ -28,6 +28,7 @@ app = FastAPI(
     description='Melodio的后端(基于 musicdl)',
     version='1.0.0',
     lifespan=lifespan,
+    redirect_slashes=False
 )
 
 app.add_middleware(
