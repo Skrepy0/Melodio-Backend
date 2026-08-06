@@ -42,7 +42,10 @@ async def search_songs(
         if not MusicClient.is_valid_music_client(client):
             raise InvalidMusicClientError(code=1001, client_name=client)
         else:
-            init_music_clients_cfg[client] = {'search_size_per_source': limit}
+            init_music_clients_cfg[client] = {
+                'search_size_per_source': limit,
+                'work_dir': f'/tmp/musicdl_outputs/{client}',
+            }
     musicClient = musicdl.MusicClient(
         music_sources=music_client,
         init_music_clients_cfg=init_music_clients_cfg,
@@ -80,7 +83,10 @@ async def parse_song_list(
     if not MusicClient.is_valid_music_client(client):
         raise InvalidMusicClientError(code=1001, client_name=client)
     else:
-        init_music_clients_cfg[client] = {'search_size_per_source': limit,'work_dir':f'/tmp/musicdl_outputs/{client}'}
+        init_music_clients_cfg[client] = {
+            'search_size_per_source': limit,
+            'work_dir': f'/tmp/musicdl_outputs/{client}',
+        }
     musicClient = musicdl.MusicClient(
         music_sources=music_client,
         init_music_clients_cfg=init_music_clients_cfg,
