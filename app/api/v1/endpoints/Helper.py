@@ -1,3 +1,6 @@
+from typing import List, Dict, Tuple
+
+from musicdl import musicdl
 from musicdl.modules import SongInfo
 
 from app.schemas.music import SongItem
@@ -37,3 +40,58 @@ def format_parse_list_data(search_results: list[SongInfo]) -> list[SongItem]:
             )
         )
     return results
+
+
+class _NullProgress:
+    def add_task(self, *a, **k):
+        return 0
+
+    def update(self, *a, **k):
+        pass
+
+    def advance(self, *a, **k):
+        pass
+
+    def __getattr__(self, _):
+        return lambda *a, **k: None
+
+
+def _search_source(
+    source: str, keyword: str, limit: int, bucket: List[Dict]
+) -> Tuple[str, bool]:
+    """
+    在单个音乐源上执行搜索，结果追加到 bucket 中。
+    返回 (source, success) 标记是否成功。
+    """
+    try:
+        cfg = {
+            source: {
+                'search_size_per_source': limit,
+                'work_dir': f'/tmp/musicdl_outputs/{source}',
+            }
+        }
+        cli = musicdl.MusicClient(
+            music_sources=[source],
+            init_music_clients_cfg=cfg,
+        )
+        real_client = cli.music_clients[source]
+        progress = _NullProgress()
+
+        search_urls = real_client._constructsearchurls(
+            keyword=keyword, rule={}, request_overrides={}
+        )
+        if not search_urls:
+            return source, False
+
+        for url in search_urls:
+            real_client._search(
+                keyword=keyword,
+                search_url=url,
+                request_overrides={},
+                song_infos=bucket,
+                progress=progress,
+            )
+        return source, True
+    except Exception as e:
+        print(f'[ERROR] Source {source} failed: {e}')
+        return source, False

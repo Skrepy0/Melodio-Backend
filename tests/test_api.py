@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import json
 import sys
 import time
 
@@ -173,3 +174,57 @@ async def test_parse_song_list_client_count_mismatch():
     assert 'code' in data
     assert 'msg' in data
     assert 'detail' in data
+
+
+@pytest.mark.asyncio
+async def test_search_stream_success():
+    """测试 SSE 搜索成功：应返回流式数据并最终收到 done"""
+    params = {
+        'keyword': '林俊杰',
+        'music_client': ['KuwoMusicClient', 'MiguMusicClient'],
+        'limit': 3,
+        'timeout': 30,
+    }
+    headers = make_signed_headers(
+        path='/api/v1/music/search_stream', params=params
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url='http://test'
+    ) as client:
+        async with client.stream(
+            'GET',
+            '/api/v1/music/search_stream',
+            params=params,
+            headers=headers,
+        ) as response:
+            assert response.status_code == 200
+            assert response.headers['content-type'].startswith(
+                'text/event-stream'
+            )
+
+            received_sources = set()
+            done_received = False
+
+            async for line in response.aiter_lines():
+                if not line.startswith('data: '):
+                    continue
+                data_str = line[6:].strip()
+                if not data_str:
+                    continue
+                try:
+                    data = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+
+                if data.get('status') == 'done':
+                    done_received = True
+                    break
+
+                assert data.get('status') == 'partial'
+                assert 'source' in data
+                assert 'items' in data
+                assert isinstance(data['items'], list)
+                received_sources.add(data['source'])
+
+            assert done_received, "未收到结束信号 'done'"
+            assert len(received_sources) >= 1, '至少应有一个音乐源返回结果'

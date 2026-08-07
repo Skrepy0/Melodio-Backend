@@ -1,14 +1,16 @@
 import asyncio
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Tuple, List, Dict
 
 from fastapi import APIRouter, Depends, Query
 from musicdl import musicdl
+from starlette.responses import StreamingResponse
 
 from app.api.v1.endpoints.Helper import (
     format_song_data,
     format_parse_list_data,
+    _search_source,
 )
 from app.core.dependencies import verify_signature
 from app.schemas.client import MusicClient
@@ -19,20 +21,6 @@ from app.utils.exceptions import (
 )
 
 router = APIRouter()
-
-
-class _NullProgress:
-    def add_task(self, *a, **k):
-        return 0
-
-    def update(self, *a, **k):
-        pass
-
-    def advance(self, *a, **k):
-        pass
-
-    def __getattr__(self, _):
-        return lambda *a, **k: None
 
 
 @router.get(
@@ -56,40 +44,6 @@ async def search_songs(
         if not MusicClient.is_valid_music_client(client):
             raise InvalidMusicClientError(code=1001, client_name=client)
 
-    def search_source(source: str, bucket: List[Dict]) -> Tuple[str, bool]:
-        try:
-            cfg = {
-                source: {
-                    'search_size_per_source': limit,
-                    'work_dir': f'/tmp/musicdl_outputs/{source}',
-                }
-            }
-            cli = musicdl.MusicClient(
-                music_sources=[source],
-                init_music_clients_cfg=cfg,
-            )
-            real_client = cli.music_clients[source]
-            progress = _NullProgress()
-
-            search_urls = real_client._constructsearchurls(
-                keyword=keyword, rule={}, request_overrides={}
-            )
-            if not search_urls:
-                return source, False
-
-            for url in search_urls:
-                real_client._search(
-                    keyword=keyword,
-                    search_url=url,
-                    request_overrides={},
-                    song_infos=bucket,
-                    progress=progress,
-                )
-            return source, False
-        except Exception as e:
-            print(f'[ERROR] Source {source} failed: {e}')
-            return source, False
-
     buckets = {source: [] for source in music_client}
     executor = ThreadPoolExecutor(max_workers=len(music_client))
     loop = asyncio.get_running_loop()
@@ -97,7 +51,7 @@ async def search_songs(
     futures = []
     for source in music_client:
         future = loop.run_in_executor(
-            executor, search_source, source, buckets[source]
+            executor, _search_source, source, keyword, limit, buckets[source]
         )
         futures.append(future)
 
@@ -134,6 +88,94 @@ async def search_songs(
         total=len(items),
         items=items,
     )
+
+
+@router.get(
+    '/search_stream',
+    summary='搜索歌曲（SSE）',
+    description='并发搜索多个音乐源，每个源完成时立即通过 SSE 推送结果，支持超时后返回部分结果',
+)
+async def search_stream(
+    keyword: str = Query(
+        ..., min_length=1, max_length=100, description='搜索关键词'
+    ),
+    music_client: list[str] = Query(
+        [MusicClient.Bilibili], description='搜索音乐源'
+    ),
+    limit: int = Query(10, ge=1, le=50, description='每个源的返回条数'),
+    timeout: int = Query(40, ge=1, le=600, description='最大搜索时间（秒）'),
+    _: bool = Depends(verify_signature),
+):
+    for client in music_client:
+        if not MusicClient.is_valid_music_client(client):
+            raise InvalidMusicClientError(code=1001, client_name=client)
+
+    async def event_generator():
+        """
+        异步生成器，产出 SSE 格式的数据流。
+        """
+        loop = asyncio.get_running_loop()
+        # 每个源一个独立的 bucket
+        buckets = {source: [] for source in music_client}
+        # 使用线程池并发执行搜索
+        executor = ThreadPoolExecutor(max_workers=len(music_client))
+        future_to_source = {}
+
+        # 提交所有搜索任务
+        for source in music_client:
+            future = loop.run_in_executor(
+                executor,
+                _search_source,
+                source,
+                keyword,
+                limit,
+                buckets[source],
+            )
+            future_to_source[future] = source
+
+        pending = set(future_to_source.keys())
+        start_time = time.time()
+
+        # 循环等待任务完成，直到所有任务完成或超时
+        while pending and (time.time() - start_time) < timeout:
+            # 每次等待最多 1 秒，以便及时检查总超时
+            done, pending = await asyncio.wait(
+                pending, timeout=1, return_when=asyncio.FIRST_COMPLETED
+            )
+            for fut in done:
+                source = future_to_source[fut]
+                try:
+                    # 重新抛出任务中可能的异常
+                    await fut
+                    # 如果该源有搜索结果，立即推送
+                    if buckets[source]:
+                        items = format_song_data({source: buckets[source]})
+                        serializable_items = [
+                            item.model_dump()
+                            if hasattr(item, 'model_dump')
+                            else item.dict()
+                            for item in items
+                        ]
+                        data = {
+                            'source': source,
+                            'items': serializable_items,
+                            'status': 'partial',
+                        }
+                        yield f'data: {json.dumps(data, ensure_ascii=False)}\n\n'
+                except Exception as e:
+                    # 单个源失败，不中断整体流程
+                    print(f'Source {source} failed: {e}')
+
+        # 超时或所有任务完成，取消尚未完成的任务
+        for fut in pending:
+            fut.cancel()
+        executor.shutdown(wait=False)
+
+        # 发送结束信号
+        yield f'data: {json.dumps({"status": "done"})}\n\n'
+
+    # 返回 SSE 流式响应
+    return StreamingResponse(event_generator(), media_type='text/event-stream')
 
 
 @router.get(
