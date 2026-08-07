@@ -134,3 +134,4 @@ This project is licensed under the **Apache‑2.0 License** – see the [LICENSE
 
 - [musicdl](https://github.com/CharlesPikachu/musicdl) – Multi‑platform music data aggregation library
 - [FastAPI](https://fastapi.tiangolo.com/) – High‑performance Python web framework
+- [Soundtrack](https://github.com/CharlesPikachu/musicdl/tree/master/examples/claudeai-modern-web-music-player) - A modern web-based music search / download / player built on top of musicdl

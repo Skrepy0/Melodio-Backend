@@ -134,5 +134,4 @@ run test-api
 
 - [musicdl](https://github.com/CharlesPikachu/musicdl) – 多平台音乐数据聚合库
 - [FastAPI](https://fastapi.tiangolo.com/) – 高性能 Python Web 框架
-
-```
+- [Soundtrack](https://github.com/CharlesPikachu/musicdl/tree/master/examples/claudeai-modern-web-music-player) - 基于 musicdl 的现代化音乐 搜索 / 下载 / 播放器
