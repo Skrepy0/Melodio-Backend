@@ -1,5 +1,6 @@
-from pydantic import BaseModel
 from typing import Optional, List
+
+from pydantic import BaseModel
 
 from app.schemas.url_status import UrlStatus
 

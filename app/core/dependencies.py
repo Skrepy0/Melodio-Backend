@@ -3,8 +3,8 @@ import hmac
 import time
 from urllib.parse import parse_qsl
 
-from slowapi import Limiter
 from fastapi import Request, HTTPException
+from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.core.config import settings
