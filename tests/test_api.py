@@ -1,14 +1,14 @@
+import hashlib
+import hmac
 import sys
-from urllib.parse import urlencode
+import time
 
 import httpx
 import pytest
-import hmac
-import hashlib
-import time
 from httpx import AsyncClient, ASGITransport
-from main import app
+
 from app.core.config import settings
+from main import app
 
 print('Python:', sys.executable)
 print('httpx:', httpx.__version__)
@@ -53,8 +53,9 @@ async def test_search_success():
     """测试: 正常搜索，应返回 200"""
     params = {
         'keyword': '有兽焉',
-        'music_client': ['BilibiliMusicClient', 'KuwoMusicClient'],
+        'music_client': ['KuwoMusicClient', 'MiguMusicClient'],
         'limit': 5,
+        'timeout': 1,
     }
     headers = make_signed_headers(params=params)
     async with AsyncClient(
@@ -66,6 +67,7 @@ async def test_search_success():
     assert response.status_code == 200, (
         f'Unexpected status {response.status_code}: {response.text}'
     )
+    print(response.json())
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,7 @@
 import asyncio
-from typing import Tuple
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Tuple, List, Dict
 
 from fastapi import APIRouter, Depends, Query
 from musicdl import musicdl
@@ -19,69 +21,115 @@ from app.utils.exceptions import (
 router = APIRouter()
 
 
+class _NullProgress:
+    def add_task(self, *a, **k):
+        return 0
+
+    def update(self, *a, **k):
+        pass
+
+    def advance(self, *a, **k):
+        pass
+
+    def __getattr__(self, _):
+        return lambda *a, **k: None
+
+
 @router.get(
     '/search',
     response_model=SongResponse,
     summary='搜索歌曲',
-    description='根据关键词并发搜索多个音乐源',
+    description='并发搜索多个音乐源，支持超时后返回部分结果',
 )
 async def search_songs(
     keyword: str = Query(
         ..., min_length=1, max_length=100, description='搜索关键词'
     ),
     music_client: list[str] = Query(
-        [MusicClient.Bilibili], description='音乐来源列表'
+        [MusicClient.Bilibili], description='搜索音乐源'
     ),
-    limit: int = Query(
-        10, ge=1, le=50, description='每个源的返回条数，最大 50'
-    ),
+    limit: int = Query(10, ge=1, le=50, description='每个源的返回条数'),
+    timeout: int = Query(40, ge=1, le=600, description='最大搜索时间'),
     _: bool = Depends(verify_signature),
 ):
     for client in music_client:
         if not MusicClient.is_valid_music_client(client):
             raise InvalidMusicClientError(code=1001, client_name=client)
-    PER_SOURCE_TIMEOUT = min(10 * limit, 40)
 
-    async def search_single_source(source: str) -> Tuple[str, dict, bool]:
-        cfg = {
-            source: {
-                'search_size_per_source': limit,
-                'work_dir': f'/tmp/musicdl_outputs/{source}',
-            }
-        }
+    def search_source(source: str, bucket: List[Dict]) -> Tuple[str, bool]:
         try:
+            cfg = {
+                source: {
+                    'search_size_per_source': limit,
+                    'work_dir': f'/tmp/musicdl_outputs/{source}',
+                }
+            }
             cli = musicdl.MusicClient(
                 music_sources=[source],
                 init_music_clients_cfg=cfg,
             )
-            res = await asyncio.wait_for(
-                asyncio.to_thread(cli.search, keyword),
-                timeout=PER_SOURCE_TIMEOUT,
+            real_client = cli.music_clients[source]
+            progress = _NullProgress()
+
+            search_urls = real_client._constructsearchurls(
+                keyword=keyword, rule={}, request_overrides={}
             )
-            return source, res, False
-        except asyncio.TimeoutError:
-            print(
-                f'[TIMEOUT] Source {source} exceeded {PER_SOURCE_TIMEOUT}s, discarded.'
-            )
-            return source, {source: []}, True
+            if not search_urls:
+                return source, False
+
+            for url in search_urls:
+                real_client._search(
+                    keyword=keyword,
+                    search_url=url,
+                    request_overrides={},
+                    song_infos=bucket,
+                    progress=progress,
+                )
+            return source, False
         except Exception as e:
             print(f'[ERROR] Source {source} failed: {e}')
-            return source, {source: []}, False
+            return source, False
 
-    tasks = [search_single_source(source) for source in music_client]
-    results = await asyncio.gather(*tasks)
+    buckets = {source: [] for source in music_client}
+    executor = ThreadPoolExecutor(max_workers=len(music_client))
+    loop = asyncio.get_running_loop()
 
-    combined = {}
+    futures = []
+    for source in music_client:
+        future = loop.run_in_executor(
+            executor, search_source, source, buckets[source]
+        )
+        futures.append(future)
+
+    start_time = time.time()
+    completed_sources = set()
     timeout_sources = []
 
-    for source_name, result, is_timeout in results:
-        if is_timeout:
-            timeout_sources.append(source_name)
-        else:
-            combined.update(result)
+    while (
+        len(completed_sources) < len(music_client)
+        and (time.time() - start_time) < timeout
+    ):
+        for i, fut in enumerate(futures):
+            if fut.done() and i not in completed_sources:
+                try:
+                    fut.result()
+                    completed_sources.add(i)
+                except Exception:
+                    completed_sources.add(i)
+        await asyncio.sleep(0.1)
+
+    if len(completed_sources) < len(music_client):
+        for i, fut in enumerate(futures):
+            if not fut.done():
+                fut.cancel()
+                timeout_sources.append(music_client[i])
+
+    combined = {}
+    for source, bucket in buckets.items():
+        if bucket:
+            combined[source] = bucket
 
     items = format_song_data(combined)
-
     return SongResponse(
         total=len(items),
         items=items,
