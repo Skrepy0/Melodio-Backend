@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Callable, Any
 
 from musicdl import musicdl
 from musicdl.modules import SongInfo
@@ -42,6 +42,23 @@ def format_parse_list_data(search_results: list[SongInfo]) -> list[SongItem]:
     return results
 
 
+class NotifyList(list):
+    """监听列表添加操作的自定义列表"""
+
+    def __init__(self, on_add: Callable[[Any], None], iterable=None):
+        super().__init__(iterable or [])
+        self.on_add = on_add
+
+    def append(self, item):
+        super().append(item)
+        self.on_add(item)
+
+    def extend(self, iterable):
+        super().extend(iterable)
+        for item in iterable:
+            self.on_add(item)
+
+
 class _NullProgress:
     def add_task(self, *a, **k):
         return 0
@@ -59,10 +76,6 @@ class _NullProgress:
 def _search_source(
     source: str, keyword: str, limit: int, bucket: List[Dict]
 ) -> Tuple[str, bool]:
-    """
-    在单个音乐源上执行搜索，结果追加到 bucket 中。
-    返回 (source, success) 标记是否成功。
-    """
     try:
         cfg = {
             source: {
@@ -95,3 +108,41 @@ def _search_source(
     except Exception as e:
         print(f'[ERROR] Source {source} failed: {e}')
         return source, False
+
+
+def _search_source_with_callbacks(
+    source: str, keyword: str, limit: int, on_song: Callable[[SongInfo], None]
+) -> None:
+    try:
+        cfg = {
+            source: {
+                'search_size_per_source': limit,
+                'work_dir': f'/tmp/musicdl_outputs/{source}',
+            }
+        }
+        cli = musicdl.MusicClient(
+            music_sources=[source],
+            init_music_clients_cfg=cfg,
+        )
+        real_client = cli.music_clients[source]
+        progress = _NullProgress()
+
+        # 创建带回调的 bucket
+        bucket = NotifyList(on_add=on_song)
+
+        search_urls = real_client._constructsearchurls(
+            keyword=keyword, rule={}, request_overrides={}
+        )
+        if not search_urls:
+            return
+
+        for url in search_urls:
+            real_client._search(
+                keyword=keyword,
+                search_url=url,
+                request_overrides={},
+                song_infos=bucket,
+                progress=progress,
+            )
+    except Exception as e:
+        print(f'[ERROR] Source {source} failed: {e}')

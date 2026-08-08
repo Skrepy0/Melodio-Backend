@@ -1,15 +1,18 @@
 import asyncio
 import json
+import queue
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Depends, Query
 from musicdl import musicdl
+from musicdl.modules import SongInfo
 from starlette.responses import StreamingResponse
 
 from app.api.v1.endpoints.Helper import (
-    format_song_data,
     format_parse_list_data,
+    _search_source_with_callbacks,
+    format_song_data,
     _search_source,
 )
 from app.core.dependencies import verify_signature
@@ -111,67 +114,68 @@ async def search_stream(
             raise InvalidMusicClientError(code=1001, client_name=client)
 
     async def event_generator():
-        """
-        异步生成器，产出 SSE 格式的数据流。
-        """
         loop = asyncio.get_running_loop()
-        # 每个源一个独立的 bucket
-        buckets = {source: [] for source in music_client}
-        # 使用线程池并发执行搜索
+        sync_queue = queue.Queue()
         executor = ThreadPoolExecutor(max_workers=len(music_client))
         future_to_source = {}
 
-        # 提交所有搜索任务
+        def make_callback(src: str):
+            def callback(song_info: SongInfo):
+                try:
+                    items = format_song_data({src: [song_info]})
+                    if items:
+                        song_dict = items[0].model_dump()
+                        sync_queue.put(
+                            (src, [song_dict], 'partial')
+                        )  # 关键：items 是列表
+                except Exception as e:
+                    print(f'Callback error for {src}: {e}')
+
+            return callback
+
+        # 提交任务时传入
         for source in music_client:
-            future = loop.run_in_executor(
+            fut = loop.run_in_executor(
                 executor,
-                _search_source,
+                _search_source_with_callbacks,
                 source,
                 keyword,
                 limit,
-                buckets[source],
+                make_callback(source),
             )
-            future_to_source[future] = source
+            future_to_source[fut] = source
 
-        pending = set(future_to_source.keys())
-        start_time = time.time()
+        # 监控任务：等待所有线程结束或超时，放入终止标记
+        async def monitor():
+            pending = set(future_to_source.keys())
+            start_time = loop.time()
+            try:
+                while pending and (loop.time() - start_time) < timeout:
+                    done, pending = await asyncio.wait(
+                        pending, timeout=1, return_when=asyncio.FIRST_COMPLETED
+                    )
+                # 超时或全部完成，取消未完成的任务
+                for fut in pending:
+                    fut.cancel()
+            finally:
+                executor.shutdown(wait=False)
+                sync_queue.put((None, None, 'done'))  # 终止信号
 
-        # 循环等待任务完成，直到所有任务完成或超时
-        while pending and (time.time() - start_time) < timeout:
-            # 每次等待最多 1 秒，以便及时检查总超时
-            done, pending = await asyncio.wait(
-                pending, timeout=1, return_when=asyncio.FIRST_COMPLETED
-            )
-            for fut in done:
-                source = future_to_source[fut]
-                try:
-                    # 重新抛出任务中可能的异常
-                    await fut
-                    # 如果该源有搜索结果，立即推送
-                    if buckets[source]:
-                        items = format_song_data({source: buckets[source]})
-                        serializable_items = [
-                            item.model_dump()
-                            if hasattr(item, 'model_dump')
-                            else item.dict()
-                            for item in items
-                        ]
-                        data = {
-                            'source': source,
-                            'items': serializable_items,
-                            'status': 'partial',
-                        }
-                        yield f'data: {json.dumps(data, ensure_ascii=False)}\n\n'
-                except Exception as e:
-                    # 单个源失败，不中断整体流程
-                    print(f'Source {source} failed: {e}')
+        # 启动监控任务（不等待）
+        monitor_task = asyncio.create_task(monitor())
 
-        # 超时或所有任务完成，取消尚未完成的任务
-        for fut in pending:
-            fut.cancel()
-        executor.shutdown(wait=False)
+        try:
+            # 消费者循环：从队列中取数据并逐条推送
+            while True:
+                item = await loop.run_in_executor(None, sync_queue.get)
+                source, items, status = item
+                if status == 'done':
+                    break
+                yield f'data: {json.dumps({"source": source, "items": items, "status": status}, ensure_ascii=False)}\n\n'
+        finally:
+            monitor_task.cancel()  # 取消监控任务（若尚未结束）
 
-        # 发送结束信号
+        # 所有歌曲推送完毕，发送完成状态
         yield f'data: {json.dumps({"status": "done"})}\n\n'
 
     # 返回 SSE 流式响应
