@@ -16,7 +16,7 @@ print('httpx:', httpx.__version__)
 
 
 def make_signed_headers(
-    method='GET', path='/api/v1/music/search', params=None
+        method='GET', path='/api/v1/music/search', params=None
 ):
     if params is None:
         params = {'keyword': '林俊杰', 'limit': 5}
@@ -60,7 +60,7 @@ async def test_search_success():
     }
     headers = make_signed_headers(params=params)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url='http://test'
+            transport=ASGITransport(app=app), base_url='http://test'
     ) as client:
         response = await client.get(
             '/api/v1/music/search', params=params, headers=headers
@@ -75,7 +75,7 @@ async def test_search_success():
 async def test_search_missing_signature():
     """测试: 缺少请求签名, 返回 403"""
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url='http://test'
+            transport=ASGITransport(app=app), base_url='http://test'
     ) as client:
         response = await client.get(
             '/api/v1/music/search', params={'keyword': 'test'}
@@ -94,7 +94,7 @@ async def test_search_invalid_signature():
         'X-Signature': 'this_is_wrong_signature',
     }
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url='http://test'
+            transport=ASGITransport(app=app), base_url='http://test'
     ) as client:
         response = await client.get(
             '/api/v1/music/search', params=params, headers=headers
@@ -113,7 +113,7 @@ async def test_search_invalid_music_client():
     }
     headers = make_signed_headers(params=params)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url='http://test'
+            transport=ASGITransport(app=app), base_url='http://test'
     ) as client:
         response = await client.get(
             '/api/v1/music/search', params=params, headers=headers
@@ -137,7 +137,7 @@ async def test_parse_song_list_success():
         path='/api/v1/music/parse_song_list', params=params
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url='http://test'
+            transport=ASGITransport(app=app), base_url='http://test'
     ) as client:
         response = await client.get(
             '/api/v1/music/parse_song_list', params=params, headers=headers
@@ -162,7 +162,7 @@ async def test_parse_song_list_client_count_mismatch():
         path='/api/v1/music/parse_song_list', params=params
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url='http://test'
+            transport=ASGITransport(app=app), base_url='http://test'
     ) as client:
         response = await client.get(
             '/api/v1/music/parse_song_list', params=params, headers=headers
@@ -189,13 +189,13 @@ async def test_search_stream_success():
         path='/api/v1/music/search_stream', params=params
     )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url='http://test'
+            transport=ASGITransport(app=app), base_url='http://test'
     ) as client:
         async with client.stream(
-            'GET',
-            '/api/v1/music/search_stream',
-            params=params,
-            headers=headers,
+                'GET',
+                '/api/v1/music/search_stream',
+                params=params,
+                headers=headers,
         ) as response:
             assert response.status_code == 200
             assert response.headers['content-type'].startswith(

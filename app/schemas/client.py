@@ -22,6 +22,7 @@ class MusicClient(StrEnum):
     Gequhai = 'GequhaiMusicClient'
     Mitu = 'MituMusicClient'
     Zhuolin = 'ZhuolinMusicClient'
+    TwoT58 = 'TwoT58MusicClient'
 
     @staticmethod
     def is_valid_music_client(value: str) -> bool:
